@@ -33,3 +33,17 @@ airport_delay_filled <- all_combinations %>%
 airport_delay_filled <- airport_delay_filled %>%
   filter(!(year == 2013 & month < 8) & !(year == 2023 & month > 8))
 
+
+## Plot some series
+library(ggplot2)
+abe_data <- airport_delay_filled %>%
+  filter(airport == "ABE")
+
+abe_data <- abe_data %>%
+  mutate(time_period = as.Date(paste0(time_period, "-01")))
+
+ggplot(abe_data, aes(x = time_period, y = total_arrivals)) +
+  geom_line(color = "blue", size = 1) +
+  labs(x = "Date",
+       y = "Total Arrivals") +
+  theme_minimal() 
