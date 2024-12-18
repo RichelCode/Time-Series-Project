@@ -5,6 +5,11 @@ library(tidyverse)
 
 delay <- read_csv('Airline_Delay_Cause.csv')
 
+## Create city and state columns
+delay <- delay %>%
+  separate(airport_name, into = c("city", "state"), sep = ", ", extra = "merge")
+delay <- delay %>%
+  mutate(state = sub(":.*", "", state))
 
 airport_delay_summary <- delay %>%
   group_by(airport, year, month) %>%
@@ -32,6 +37,13 @@ airport_delay_filled <- all_combinations %>%
 
 airport_delay_filled <- airport_delay_filled %>%
   filter(!(year == 2013 & month < 8) & !(year == 2023 & month > 8))
+
+# Add state and city columns
+airport_location_mapping <- delay %>%
+  distinct(airport, city, state)
+
+airport_delay_filled <- airport_delay_filled %>%
+  left_join(airport_location_mapping, by = "airport")
 
 
 ## Plot some series
