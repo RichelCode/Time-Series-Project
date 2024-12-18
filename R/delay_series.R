@@ -1,4 +1,7 @@
 
+## Delay dataset
+
+library(tidyverse)
 
 delay <- read_csv('Airline_Delay_Cause.csv')
 
@@ -6,7 +9,7 @@ delay <- read_csv('Airline_Delay_Cause.csv')
 airport_delay_summary <- delay %>%
   group_by(airport, year, month) %>%
   summarise(total_arrivals = sum(arr_flights, na.rm = TRUE),
-            total_delay_arrival = sum(arr_delay, na.rm = TRUE),
+            #total_delay_arrival = sum(arr_delay, na.rm = TRUE),
             total_delay_15 = sum(arr_del15, na.rm = TRUE), 
             total_cancel = sum(arr_cancelled, na.rm = TRUE), .groups = "drop" )
 
@@ -21,14 +24,12 @@ all_combinations <- delay %>%
 airport_delay_filled <- all_combinations %>%
   left_join(airport_delay_summary, by = c("airport", "year", "month")) %>%
   mutate(total_arrivals = ifelse(is.na(total_arrivals), 0, total_arrivals)) %>%
-  mutate(total_delay_arrival = ifelse(is.na(total_delay_arrival), 0, total_delay_arrival)) %>%
+  #mutate(total_delay_arrival = ifelse(is.na(total_delay_arrival), 0, total_delay_arrival)) %>%
   mutate(total_delay_15 = ifelse(is.na(total_delay_15), 0, total_delay_15)) %>%
   mutate(total_cancel = ifelse(is.na(total_cancel), 0, total_cancel)) %>%
   mutate(time_period = paste(year, month, sep = "-"))
 
 
 airport_delay_filled <- airport_delay_filled %>%
-  filter(!(year == 2013 & month < 8))
+  filter(!(year == 2013 & month < 8) & !(year == 2023 & month > 8))
 
-# Check the result
-head(airport_delay_filled)
