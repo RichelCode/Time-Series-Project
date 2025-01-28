@@ -1,0 +1,397 @@
+---
+title: "USA Airline Data Analysis"
+author: "Your Name"
+date: "`r Sys.Date()`"
+output: 
+  html_document: default
+  ipynb_notebook: default
+---
+
+## Reading and Exploring the Dataset
+
+```{r setup, include=FALSE}
+install.packages("zoo")
+install.packages("ggcorrplot")
+install.packages(c( "ggplot2","GGally"))
+install.packages("rmarkdown")
+install.packages("IRkernel")
+
+# Load necessary library
+library(dplyr)
+library(zoo)
+library(ggcorrplot)
+
+# Reading the USA Airline data
+airline_data <- read.csv("C:/Users/EWURA/Desktop/PROJECT-Professor Mashouri/PROJECT/Dataset/usa.csv", stringsAsFactors = FALSE)
+
+# Display basic information about the dataset
+str(airline_data)
+
+```
+
+```{r 1}
+# Display the first 5 rows of the dataset
+head(airline_data, 5)
+
+# Check for missing values
+missing_values <- sapply(airline_data, function(x) sum(is.na(x)))
+missing_values[missing_values > 0]  # Show columns with missing values
+
+```
+
+## Handling Missing Values
+
+###  Check for Missing Values
+```{r check-missing-values}
+# Check for missing values
+missing_values <- sapply(airline_data, function(x) sum(is.na(x)))
+missing_values[missing_values > 0]  # Display columns with missing values
+
+# Impute missing values in carrier-related columns with "Unknown"
+airline_data$carrier_lg <- ifelse(is.na(airline_data$carrier_lg), "Unknown", airline_data$carrier_lg)
+airline_data$carrier_low <- ifelse(is.na(airline_data$carrier_low), "Unknown", airline_data$carrier_low)
+
+# Replace missing numeric values with the column mean
+airline_data$large_ms <- ifelse(is.na(airline_data$large_ms), mean(airline_data$large_ms, na.rm = TRUE), airline_data$large_ms)
+airline_data$fare_lg <- ifelse(is.na(airline_data$fare_lg), mean(airline_data$fare_lg, na.rm = TRUE), airline_data$fare_lg)
+airline_data$lf_ms <- ifelse(is.na(airline_data$lf_ms), mean(airline_data$lf_ms, na.rm = TRUE), airline_data$lf_ms)
+airline_data$fare_low <- ifelse(is.na(airline_data$fare_low), mean(airline_data$fare_low, na.rm = TRUE), airline_data$fare_low)
+ 
+# Impute missing values in Geocoded_City1 and Geocoded_City2
+airline_data$Geocoded_City1 <- ifelse(is.na(airline_data$Geocoded_City1), airline_data$city1, airline_data$Geocoded_City1)
+airline_data$Geocoded_City2 <- ifelse(is.na(airline_data$Geocoded_City2), airline_data$city2, airline_data$Geocoded_City2)
+            
+# Verify remaining missing values
+remaining_missing_values <- sapply(airline_data, function(x) sum(is.na(x)))
+remaining_missing_values
+```
+## Combining and Manipulating Data
+
+### Combine `Year` and `quarter` to Create a Time Variable
+```{r create-time-variable}
+# Create a time variable by combining Year and quarter
+airline_data$time <- paste(airline_data$Year, airline_data$quarter, sep = "-Q")
+airline_data$time <- as.yearqtr(airline_data$time, format = "%Y-Q%q")  # Convert to year-quarter format
+
+# Sort the dataset by the time variable
+airline_data <- airline_data[order(airline_data$time), ]
+head(airline_data[, c("time", "Year", "quarter")])
+
+# Aggregate data by time, airport_1, and airport_2
+library(dplyr)
+route_specific_aggregation <- airline_data %>%
+  group_by(time, airport_1, airport_2) %>%
+  summarise(
+    passengers = sum(passengers, na.rm = TRUE),  # Total passengers
+    fare = mean(fare, na.rm = TRUE),            # Average fare
+    nsmiles = mean(nsmiles, na.rm = TRUE)       # Average distance
+  ) %>%
+  ungroup()
+
+# Display the aggregated data
+print("Route-Specific Aggregated Data:")
+head(route_specific_aggregation)
+
+# Count the number of arrivals for each destination airport
+arrivals <- airline_data %>%
+  group_by(airportid_2) %>%
+  summarise(num_arrivals = n())
+
+# Merge arrivals data back into the original dataset
+airline_data <- left_join(airline_data, arrivals, by = "airportid_2")
+
+# Split city2 into city and state
+library(stringr)
+city_state <- str_split_fixed(airline_data$city2, ",", 2)
+airline_data$city <- str_trim(city_state[, 1])  # Extract and trim city
+airline_data$state <- str_trim(city_state[, 2]) # Extract and trim state
+
+# Check the updated dataset
+head(airline_data[, c("city2", "city", "state")])
+
+# Check and remove duplicate columns, if any
+if ("num_arrivals_x" %in% names(airline_data) & "num_arrivals_y" %in% names(airline_data)) {
+  # Consolidate the columns (assuming they are identical)
+  airline_data$num_arrivals <- airline_data$num_arrivals_y
+  airline_data <- airline_data %>% select(-num_arrivals_x, -num_arrivals_y)
+}
+
+# Verify the result
+head(airline_data[, c("airportid_2", "num_arrivals")])
+```
+## Cleaning the Dataset
+
+### Drop Unnecessary Columns
+```{r drop-columns}
+# Specify columns to drop
+columns_to_drop <- c(
+  "city1", "city2", "carrier_lg", "large_ms", "fare_lg",
+  "carrier_low", "lf_ms", "fare_low", "Geocoded_City1", "Geocoded_City2",
+  "citymarketid_1", "citymarketid_2", "airportid_1", "airportid_2"
+)
+
+# Remove the columns from the dataset
+airline_data_cleaned <- airline_data %>% select(-all_of(columns_to_drop))
+
+# Display the remaining columns
+colnames(airline_data_cleaned)
+
+# Preview the cleaned dataset
+head(airline_data_cleaned)
+```
+## Summary Statistics and Visualizations
+
+### Summary Statistics for the Cleaned Dataset
+```{r summary-statistics}
+# Summary statistics for the cleaned dataset
+summary(airline_data_cleaned)
+
+# Count rows with zero passengers
+zero_passengers <- airline_data_cleaned %>% filter(passengers == 0)
+cat("Number of rows with zero passengers:", nrow(zero_passengers), "\n")
+
+# Display some examples
+cat("Examples of rows with zero passengers:")
+head(zero_passengers)
+```
+
+```{r Aggeregation}
+# Aggregate total passengers over time
+library(ggplot2)
+time_trend <- airline_data_cleaned %>%
+  group_by(time) %>%
+  summarise(total_passengers = sum(passengers, na.rm = TRUE)) %>%
+  ungroup()
+
+# Plot passenger trends over time
+ggplot(time_trend, aes(x = time, y = total_passengers)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "blue") +
+  labs(
+    title = "Total Passengers Over Time",
+    x = "Time",
+    y = "Total Passengers"
+  ) +
+  theme_minimal()
+
+# Aggregate average fare over time
+fare_trend <- airline_data_cleaned %>%
+  group_by(time) %>%
+  summarise(average_fare = mean(fare, na.rm = TRUE)) %>%
+  ungroup()
+
+# Plot average fare trends over time
+ggplot(fare_trend, aes(x = time, y = average_fare)) +
+  geom_line(color = "orange", size = 1) +
+  geom_point(color = "orange") +
+  labs(
+    title = "Average Fare Over Time",
+    x = "Time",
+    y = "Average Fare"
+  ) +
+  theme_minimal()
+
+# Aggregate total passengers by route
+top_routes <- airline_data_cleaned %>%
+  group_by(airport_1, airport_2) %>%
+  summarise(total_passengers = sum(passengers, na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(desc(total_passengers)) %>%
+  head(10)
+
+cat("Top 10 Routes by Total Passengers:")
+print(top_routes)
+
+# Aggregate average fares by route
+high_fare_routes <- airline_data_cleaned %>%
+  group_by(airport_1, airport_2) %>%
+  summarise(average_fare = mean(fare, na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(desc(average_fare)) %>%
+  head(10)
+
+cat("Top 10 Routes by Average Fare:")
+print(high_fare_routes)
+
+```
+## Analysis and Visualization
+
+### Aggregate Passengers by Quarter (Seasonality)
+```{r seasonality, warning=FALSE, message=FALSE}
+# Aggregate average passengers by quarter
+library(dplyr)
+seasonality <- airline_data_cleaned %>%
+  mutate(Quarter = as.numeric(format(time, "%q"))) %>%  # Extract quarter from time
+  group_by(Quarter) %>%
+  summarise(Average_Passengers = mean(passengers, na.rm = TRUE)) %>%
+  ungroup()
+
+# Plot seasonality
+library(ggplot2)
+ggplot(seasonality, aes(x = Quarter, y = Average_Passengers)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(
+    title = "Average Passengers by Quarter",
+    x = "Quarter",
+    y = "Average Passengers"
+  ) +
+  theme_minimal()
+
+# Compute correlation matrix for numerical columns
+numeric_columns <- airline_data_cleaned %>%
+  select(passengers, fare, nsmiles)
+correlation_matrix <- cor(numeric_columns, use = "complete.obs")
+
+# Print correlation matrix
+print("Correlation Matrix:")
+print(correlation_matrix)
+
+# Visualize the correlation matrix
+library(ggcorrplot)
+ggcorrplot(correlation_matrix, lab = TRUE, colors = c("red", "white", "blue")) +
+  labs(title = "Correlation Matrix")
+
+# Plot distribution of passengers
+ggplot(airline_data_cleaned, aes(x = passengers)) +
+  geom_histogram(bins = 50, fill = "skyblue", color = "black") +
+  labs(
+    title = "Passenger Distribution",
+    x = "Passengers",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# Plot distribution of fares
+ggplot(airline_data_cleaned, aes(x = fare)) +
+  geom_histogram(bins = 50, fill = "orange", color = "black") +
+  labs(
+    title = "Fare Distribution",
+    x = "Fare",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# Apply log transformation to passengers
+airline_data_cleaned$log_passengers <- log1p(airline_data_cleaned$passengers)  # log1p handles zero values
+
+# Plot the distribution of log-transformed passengers
+ggplot(airline_data_cleaned, aes(x = log_passengers)) +
+  geom_histogram(bins = 30, fill = "green", color = "black") +
+  labs(
+    title = "Distribution of Log-Transformed Passengers",
+    x = "Log-Transformed Passengers",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# Apply log transformation to fares
+airline_data_cleaned$log_fare <- log1p(airline_data_cleaned$fare)
+
+# Plot the distribution of log-transformed fares
+ggplot(airline_data_cleaned, aes(x = log_fare)) +
+  geom_histogram(bins = 30, fill = "orange", color = "black") +
+  labs(
+    title = "Distribution of Log-Transformed Fares",
+    x = "Log-Transformed Fare",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+```
+## Boxplots for Log-Transformed Variables
+
+### Boxplot for Log-Transformed Passengers
+```{r boxplot-log-passengers, warning=FALSE, message=FALSE}
+# Boxplot for log-transformed passengers
+library(ggplot2)
+
+ggplot(airline_data_cleaned, aes(x = log_passengers)) +
+  geom_boxplot(fill = "green", color = "black") +
+  labs(
+    title = "Boxplot of Log-Transformed Passengers",
+    x = "Log-Transformed Passengers"
+  ) +
+  theme_minimal()
+
+# Boxplot for log-transformed fares
+ggplot(airline_data_cleaned, aes(x = log_fare)) +
+  geom_boxplot(fill = "orange", color = "black") +
+  labs(
+    title = "Boxplot of Log-Transformed Fares",
+    x = "Log-Transformed Fares"
+  ) +
+  theme_minimal()
+```
+## Aggregations, Correlations, and Pairwise Relationships
+
+### 1. Aggregate and Plot Average Log Passengers Over Time
+```{r log-passengers-over-time, warning=FALSE, message=FALSE}
+# Aggregate log_passengers by time
+library(dplyr)
+library(ggplot2)
+
+average_passengers_over_time <- airline_data_cleaned %>%
+  group_by(time) %>%
+  summarise(average_log_passengers = mean(log_passengers, na.rm = TRUE)) %>%
+  ungroup()
+
+# Plot the aggregated time series
+ggplot(average_passengers_over_time, aes(x = time, y = average_log_passengers)) +
+  geom_line(color = "green", size = 1) +
+  labs(
+    title = "Average Log Passengers Over Time",
+    x = "Time",
+    y = "Average Log Passengers"
+  ) +
+  theme_minimal() +
+  theme(panel.grid.major = element_line(color = "grey90"))
+
+# Aggregate log_fare by time
+average_fare_over_time <- airline_data_cleaned %>%
+  group_by(time) %>%
+  summarise(average_log_fare = mean(log_fare, na.rm = TRUE)) %>%
+  ungroup()
+
+# Plot the aggregated time series
+ggplot(average_fare_over_time, aes(x = time, y = average_log_fare)) +
+  geom_line(color = "orange", size = 1) +
+  labs(
+    title = "Average Log Fare Over Time",
+    x = "Time",
+    y = "Average Log Fare"
+  ) +
+  theme_minimal() +
+  theme(panel.grid.major = element_line(color = "grey90"))
+
+# Aggregate log_fare by time
+average_fare_over_time <- airline_data_cleaned %>%
+  group_by(time) %>%
+  summarise(average_log_fare = mean(log_fare, na.rm = TRUE)) %>%
+  ungroup()
+
+# Plot the aggregated time series
+ggplot(average_fare_over_time, aes(x = time, y = average_log_fare)) +
+  geom_line(color = "orange", size = 1) +
+  labs(
+    title = "Average Log Fare Over Time",
+    x = "Time",
+    y = "Average Log Fare"
+  ) +
+  theme_minimal() +
+  theme(panel.grid.major = element_line(color = "grey90"))
+
+# Create pairwise scatterplots
+library(GGally)
+
+ggpairs(
+  airline_data_cleaned,
+  columns = c("log_fare", "log_passengers", "nsmiles"),
+  diag = list(continuous = "densityDiag"),
+  lower = list(continuous = "smooth"),
+  upper = list(continuous = "cor")
+) +
+  labs(title = "Pairwise Relationships Among Key Variables") +
+  theme_minimal()
+
+```
+
