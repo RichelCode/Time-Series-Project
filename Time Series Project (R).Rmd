@@ -13,8 +13,6 @@ output:
 install.packages("zoo")
 install.packages("ggcorrplot")
 install.packages(c( "ggplot2","GGally"))
-install.packages("rmarkdown")
-install.packages("IRkernel")
 
 # Load necessary library
 library(dplyr)
