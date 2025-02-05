@@ -4,7 +4,6 @@ author: "Your Name"
 date: "`r Sys.Date()`"
 output: 
   html_document: default
-  ipynb_notebook: default
 ---
 
 ## Reading and Exploring the Dataset
@@ -13,11 +12,16 @@ output:
 install.packages("zoo")
 install.packages("ggcorrplot")
 install.packages(c( "ggplot2","GGally"))
+install.packages("tidyr")
+```
 
+```{r beginning}
 # Load necessary library
 library(dplyr)
 library(zoo)
 library(ggcorrplot)
+library(tidyr)
+
 
 # Reading the USA Airline data
 airline_data <- read.csv("C:/Users/EWURA/Desktop/PROJECT-Professor Mashouri/PROJECT/Dataset/usa.csv", stringsAsFactors = FALSE)
@@ -392,4 +396,208 @@ ggpairs(
   theme_minimal()
 
 ```
+```{r state_trend_plot, echo=TRUE, message=FALSE, warning=FALSE}
+
+state_trend <- airline_data_cleaned %>%
+  group_by(time, state) %>%
+  summarise(total_arrivals = sum(num_arrivals, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = state, values_from = total_arrivals)
+
+# Identify the top 5 states by total arrivals
+top_states <- colSums(state_trend[-1], na.rm = TRUE) %>%
+  sort(decreasing = TRUE) %>%
+  head(5) %>%
+  names()
+
+# Filter and reshape data for plotting
+plot_data <- state_trend %>%
+  select(time, all_of(top_states)) %>%
+  gather(key = "state", value = "total_arrivals", -time)
+
+# Plot the trend for the top 5 states
+ggplot(plot_data, aes(x = time, y = total_arrivals, color = state, group = state)) +
+  geom_line(size = 1.2, marker = "o") +
+  labs(title = "Trend of Arrivals for Top 5 States", x = "Time", y = "Total Arrivals") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  ) +
+  scale_color_discrete(name = "State")
+
+```
+```{r city_trend_plot, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Group by time and city, and calculate total arrivals
+city_trend <- airline_data_cleaned %>%
+  group_by(time, city) %>%
+  summarise(total_arrivals = sum(num_arrivals, na.rm = TRUE)) %>%
+  spread(key = city, value = total_arrivals)
+
+# Identify the top 5 cities by total arrivals
+top_cities <- colSums(city_trend[-1], na.rm = TRUE) %>%
+  sort(decreasing = TRUE) %>%
+  head(5) %>%
+  names()
+
+# Filter and reshape data for plotting
+plot_data <- city_trend %>%
+  select(time, all_of(top_cities)) %>%
+  gather(key = "city", value = "total_arrivals", -time)
+
+# Plot the trend for the top 5 cities
+ggplot(plot_data, aes(x = time, y = total_arrivals, color = city, group = city)) +
+  geom_line(size = 1.2, marker = "o") +
+  labs(title = "Trend of Arrivals for Top 5 Cities", x = "Time", y = "Total Arrivals") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  ) +
+  scale_color_discrete(name = "City")
+
+```
+
+```{r inflation_adjustment, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Set the inflation rate
+inflation_rate <- 0.02  # 2% inflation
+
+# Identify the base year
+base_year <- max(airline_data_cleaned$Year)
+
+# Adjust fares for inflation
+airline_data_cleaned <- airline_data_cleaned %>%
+  mutate(adjusted_fare = fare * (1 + inflation_rate)^(base_year - Year))
+
+# Calculate percentiles for the adjusted fares
+adjusted_fare_percentiles <- quantile(airline_data_cleaned$adjusted_fare, probs = c(0.2, 0.4, 0.6, 0.8))
+
+# Categorize the adjusted fares
+categorize_adjusted_fare <- function(fare) {
+  if (fare < adjusted_fare_percentiles[1]) {
+    return("Very Low")
+  } else if (fare >= adjusted_fare_percentiles[1] && fare < adjusted_fare_percentiles[2]) {
+    return("Low")
+  } else if (fare >= adjusted_fare_percentiles[2] && fare < adjusted_fare_percentiles[3]) {
+    return("Medium")
+  } else if (fare >= adjusted_fare_percentiles[3] && fare < adjusted_fare_percentiles[4]) {
+    return("High")
+  } else {
+    return("Very High")
+  }
+}
+
+# Apply the categorization to the adjusted fare
+airline_data_cleaned <- airline_data_cleaned %>%
+  mutate(fare_category = sapply(adjusted_fare, categorize_adjusted_fare))
+
+# Display the updated DataFrame
+head(airline_data_cleaned %>% select(Year, fare, adjusted_fare, fare_category))
+```
+
+```{r hierarchy_code_creation, echo=TRUE, message=FALSE, warning=FALSE}
+
+
+# Create the `time_point` column
+airline_data_cleaned <- airline_data_cleaned %>%
+  mutate(time_point = paste0(Year, "Q", quarter))
+
+# Define fare category and city mappings
+fare_category_map <- c(
+  "Very Low" = "VL",
+  "Low" = "L",
+  "Medium" = "M",
+  "High" = "H",
+  "Very High" = "VH"
+)
+
+city_short_map <- c(
+  "San Francisco" = "SF",
+  "New York" = "NY",
+  "Los Angeles" = "LA",
+  "Chicago" = "CH",
+  "Washington" = "DC"
+)
+
+# Create the `fare_category_code` column by mapping categories
+airline_data_cleaned <- airline_data_cleaned %>%
+  mutate(fare_category_code = fare_category_map[fare_category])
+
+# Create the `city_short` column using the city map and fallback to first two letters if not mapped
+airline_data_cleaned <- airline_data_cleaned %>%
+  mutate(city_short = ifelse(city %in% names(city_short_map),
+                             city_short_map[city],
+                             str_to_upper(substr(city, 1, 2))))
+
+# Combine elements into a `hierarchy_code`
+airline_data_cleaned <- airline_data_cleaned %>%
+  mutate(hierarchy_code = paste0(time_point, state, city_short, fare_category_code))
+
+# Select the final columns for export
+final_hierarchy_table <- airline_data_cleaned %>%
+  select(time_point, state, city_short, fare_category_code, hierarchy_code, passengers, adjusted_fare)
+
+# Display the first few rows of the final table
+head(final_hierarchy_table)
+```
+
+```{r clean_state_and_hierarchy, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Load necessary libraries
+library(stringr)
+
+# Clean the `state` column to keep only the first two uppercase letters
+airline_data_cleaned <- airline_data_cleaned %>%
+  mutate(state = ifelse(str_detect(state, "^[A-Z]{2}"), str_sub(state, 1, 2), state))
+
+# Recreate the hierarchy code with the cleaned `state` column
+airline_data_cleaned <- airline_data_cleaned %>%
+  mutate(hierarchy_code = paste0(time_point, state, city_short, fare_category_code))
+
+# Verify the updated hierarchy code column
+cat("Updated Hierarchy Code Preview:\n")
+print(head(airline_data_cleaned %>% select(hierarchy_code, state, city_short)))
+
+# Select the final columns for export
+final_hierarchy_table <- airline_data_cleaned %>%
+  select(time_point, state, city_short, fare_category_code, hierarchy_code, passengers, adjusted_fare)
+
+# Save the updated table to a CSV file (optional)
+# write.csv(final_hierarchy_table, "final_hierarchy_table.csv", row.names = FALSE)
+
+```
+
+```{r export_final_hierarchy_table, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Load necessary libraries
+library(dplyr)
+
+# Select the final columns
+final_hierarchy_table <- airline_data_cleaned %>%
+  select(
+    time_point,
+    state,
+    city_short,
+    fare_category_code,
+    hierarchy_code,
+    passengers,
+    adjusted_fare
+  )
+
+# Rename columns
+final_hierarchy_table <- final_hierarchy_table %>%
+  rename(
+    timepoints = time_point,
+    state = state,                  # No change for the `state` column name
+    city = city_short,
+    farecategory = fare_category_code,
+    hierarchy = hierarchy_code
+  )
+
+final_hierarchy_table
+```
+
 
